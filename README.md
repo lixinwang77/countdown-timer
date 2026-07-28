@@ -2,6 +2,8 @@
 
 简洁风格的 Android 倒计时 App（Jetpack Compose）。
 
+![应用界面](docs/app-ui.png)
+
 ## 功能
 
 - 时 / 分 / 秒循环滚轮选择（小时 0–99，分秒 0–59）
