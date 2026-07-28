@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Stem -->
+    <path android:fillColor="#000000" android:pathData="M51.5,25h5v8h-5z" />
+    <!-- Crown -->
+    <path android:fillColor="#000000" android:pathData="M46.5,21h15c1.4,0 2.5,1.1 2.5,2.5v2.5c0,0.8 -0.7,1.5 -1.5,1.5h-17c-0.8,0 -1.5,-0.7 -1.5,-1.5v-2.5c0,-1.4 1.1,-2.5 2.5,-2.5z" />
+
+    <!-- Left button -->
+    <path android:fillColor="#000000" android:pathData="M35.5,35.5l4.2,-4.2c0.6,-0.6 1.5,-0.6 2.1,0l1.7,1.7c0.6,0.6 0.6,1.5 0,2.1l-4.2,4.2c-0.6,0.6 -1.5,0.6 -2.1,0l-1.7,-1.7c-0.6,-0.6 -0.6,-1.5 0,-2.1z" />
+    <!-- Right button (exact mirror of left around x=54) -->
+    <path android:fillColor="#000000" android:pathData="M72.5,35.5l-4.2,-4.2c-0.6,-0.6 -1.5,-0.6 -2.1,0l-1.7,1.7c-0.6,0.6 -0.6,1.5 0,2.1l4.2,4.2c0.6,0.6 1.5,0.6 2.1,0l1.7,-1.7c0.6,-0.6 0.6,-1.5 0,-2.1z" />
+
+    <!-- Ring -->
+    <path
+        android:fillColor="#000000"
+        android:fillType="evenOdd"
+        android:pathData="M54,35c-14.4,0 -26,11.6 -26,26s11.6,26 26,26s26,-11.6 26,-26s-11.6,-26 -26,-26zM54,43c9.9,0 18,8.1 18,18s-8.1,18 -18,18s-18,-8.1 -18,-18s8.1,-18 18,-18z" />
+
+    <!-- Hands: equal length, mirrored -->
+    <path android:fillColor="#000000" android:pathData="M52.6,59.4L43.2,50c-0.8,-0.8 -0.8,-2 0,-2.8c0.8,-0.8 2,-0.8 2.8,0l9.4,9.4c0.8,0.8 0.8,2 0,2.8c-0.8,0.8 -2,0.8 -2.8,0z" />
+    <path android:fillColor="#000000" android:pathData="M55.4,59.4L64.8,50c0.8,-0.8 0.8,-2 0,-2.8c-0.8,-0.8 -2,-0.8 -2.8,0l-9.4,9.4c-0.8,0.8 -0.8,2 0,2.8c0.8,0.8 2,0.8 2.8,0z" />
+
+    <!-- Center -->
+    <path android:fillColor="#000000" android:pathData="M54,56.5c-2.5,0 -4.5,2 -4.5,4.5s2,4.5 4.5,4.5s4.5,-2 4.5,-4.5s-2,-4.5 -4.5,-4.5z" />
+</vector>
