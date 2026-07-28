@@ -2,10 +2,6 @@ package com.example.countdown.ui
 
 import android.app.Activity
 import android.view.WindowManager
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -110,37 +106,32 @@ fun CountdownScreen(
             onReset = { viewModel.resetToSetup() },
         )
 
-        AnimatedContent(
-            targetState = uiState.phase,
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
-            label = "phase",
-            modifier = Modifier.fillMaxSize(),
-        ) { phase ->
-            when (phase) {
-                TimerPhase.Setup -> SetupContent(
-                    hours = uiState.hours,
-                    minutes = uiState.minutes,
-                    seconds = uiState.seconds,
-                    onHoursChange = viewModel::setHours,
-                    onMinutesChange = viewModel::setMinutes,
-                    onSecondsChange = viewModel::setSeconds,
-                    onPreset = viewModel::applyPreset,
-                    onStart = viewModel::start,
-                )
+        // Avoid AnimatedContent here: disposing three wheel LazyColumns mid-transition
+        // previously contributed to emulator hard resets under memory pressure.
+        when (uiState.phase) {
+            TimerPhase.Setup -> SetupContent(
+                hours = uiState.hours,
+                minutes = uiState.minutes,
+                seconds = uiState.seconds,
+                onHoursChange = viewModel::setHours,
+                onMinutesChange = viewModel::setMinutes,
+                onSecondsChange = viewModel::setSeconds,
+                onPreset = viewModel::applyPreset,
+                onStart = viewModel::start,
+            )
 
-                TimerPhase.Running, TimerPhase.Paused -> RunningContent(
-                    remainingMillis = uiState.remainingMillis,
-                    totalMillis = uiState.totalMillis,
-                    isPaused = phase == TimerPhase.Paused,
-                    onPause = viewModel::pause,
-                    onResume = viewModel::resume,
-                    onCancel = viewModel::cancel,
-                )
+            TimerPhase.Running, TimerPhase.Paused -> RunningContent(
+                remainingMillis = uiState.remainingMillis,
+                totalMillis = uiState.totalMillis,
+                isPaused = uiState.phase == TimerPhase.Paused,
+                onPause = viewModel::pause,
+                onResume = viewModel::resume,
+                onCancel = viewModel::cancel,
+            )
 
-                TimerPhase.Finished -> FinishedContent(
-                    onReset = viewModel::resetToSetup,
-                )
-            }
+            TimerPhase.Finished -> FinishedContent(
+                onReset = viewModel::resetToSetup,
+            )
         }
     }
 }

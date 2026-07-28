@@ -35,8 +35,10 @@ import kotlinx.coroutines.flow.map
 import kotlin.math.abs
 
 /**
- * Circular wheel picker: scrolling past the min wraps to max (and vice versa),
- * matching system NumberPicker wrap behavior (e.g. hours 00 ↑ → 99).
+ * Circular wheel picker: scrolling past the min wraps to max (and vice versa).
+ *
+ * Uses a modest repeating list (not millions of rows) and recenters when near
+ * either end, so wrap-around stays smooth without exhausting emulator memory.
  */
 @Composable
 fun WheelPicker(
@@ -57,8 +59,9 @@ fun WheelPicker(
     require(itemCount > 0)
     require(visibleItems % 2 == 1) { "visibleItems must be odd so a center row exists" }
 
-    // Large repeating virtual list so the wheel feels infinite in both directions.
-    val repeatCount = 10_000
+    // Keep this small: 3 huge LazyColumns previously used ~2M rows and could
+    // OOM / hard-reboot the emulator when Start disposed the setup screen.
+    val repeatCount = 40
     val totalItems = itemCount * repeatCount
     val middleBase = (repeatCount / 2) * itemCount
     val centerOffset = visibleItems / 2
@@ -116,7 +119,6 @@ fun WheelPicker(
         derivedStateOf { centeredIndex(listState) }
     }
 
-    // Sync external value changes (e.g. presets) without fighting user scroll.
     LaunchedEffect(value, itemCount) {
         if (listState.isScrollInProgress) return@LaunchedEffect
         val current = centeredIndex(listState)
@@ -128,7 +130,6 @@ fun WheelPicker(
         lastEmittedValue = value
     }
 
-    // Emit selection when scrolling settles; recenter if near virtual edges.
     LaunchedEffect(listState, itemCount) {
         snapshotFlow { listState.isScrollInProgress }
             .filter { scrolling -> !scrolling }
@@ -141,7 +142,8 @@ fun WheelPicker(
                     onValueChangeState.value(selected)
                 }
 
-                val edgeMargin = itemCount * 50
+                // Recenter early so wrap never reaches a hard list edge.
+                val edgeMargin = itemCount * 4
                 if (index < edgeMargin || index > totalItems - edgeMargin) {
                     val recentered = middleBase + items.indexOf(selected).coerceAtLeast(0)
                     scrollToCentered(listState, recentered)
