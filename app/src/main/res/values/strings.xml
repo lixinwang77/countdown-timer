@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">倒计时器</string>
+    <string name="hours">小时</string>
+    <string name="minutes">分钟</string>
+    <string name="seconds">秒</string>
+    <string name="start">开始</string>
+    <string name="pause">暂停</string>
+    <string name="resume">继续</string>
+    <string name="cancel">取消</string>
+    <string name="reset">重置</string>
+    <string name="finished">时间到</string>
+    <string name="more_options">更多选项</string>
+</resources>
