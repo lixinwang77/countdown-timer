@@ -2,7 +2,7 @@
 
 简洁风格的 Android 倒计时 App（Jetpack Compose）。
 
-![应用界面](docs/app-ui.png)
+<img src="docs/app-ui.png" alt="应用界面" width="280" />
 
 ## 功能
 
