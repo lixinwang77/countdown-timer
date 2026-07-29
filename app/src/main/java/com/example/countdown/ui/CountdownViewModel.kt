@@ -35,7 +35,9 @@ data class CountdownUiState(
     val phase: TimerPhase = TimerPhase.Setup,
 )
 
-class CountdownViewModel : ViewModel() {
+class CountdownViewModel(
+    private val nowMillis: () -> Long = { System.currentTimeMillis() },
+) : ViewModel() {
     private val _uiState = MutableStateFlow(CountdownUiState())
     val uiState: StateFlow<CountdownUiState> = _uiState.asStateFlow()
 
@@ -63,11 +65,7 @@ class CountdownViewModel : ViewModel() {
     fun applyPreset(hours: Int, minutes: Int, seconds: Int) {
         if (_uiState.value.phase != TimerPhase.Setup) return
         _uiState.update {
-            it.copy(
-                hours = hours,
-                minutes = minutes,
-                seconds = seconds,
-            )
+            it.copy(hours = hours, minutes = minutes, seconds = seconds)
         }
         syncSetupDuration()
     }
@@ -76,38 +74,23 @@ class CountdownViewModel : ViewModel() {
         val state = _uiState.value
         val total = durationMillis(state.hours, state.minutes, state.seconds)
         if (total <= 0L) return
-
-        endAtMillis = System.currentTimeMillis() + total
-        _uiState.update {
-            it.copy(
-                totalMillis = total,
-                remainingMillis = total,
-                phase = TimerPhase.Running,
-            )
-        }
+        endAtMillis = nowMillis() + total
+        _uiState.update { it.copy(totalMillis = total, remainingMillis = total, phase = TimerPhase.Running) }
         startTicker()
     }
 
     fun pause() {
         if (_uiState.value.phase != TimerPhase.Running) return
         tickerJob?.cancel()
-        val remaining = (endAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
-        _uiState.update {
-            it.copy(
-                remainingMillis = remaining,
-                phase = TimerPhase.Paused,
-            )
-        }
+        val remaining = (endAtMillis - nowMillis()).coerceAtLeast(0L)
+        _uiState.update { it.copy(remainingMillis = remaining, phase = TimerPhase.Paused) }
     }
 
     fun resume() {
         if (_uiState.value.phase != TimerPhase.Paused) return
         val remaining = _uiState.value.remainingMillis
-        if (remaining <= 0L) {
-            finish()
-            return
-        }
-        endAtMillis = System.currentTimeMillis() + remaining
+        if (remaining <= 0L) { finish(); return }
+        endAtMillis = nowMillis() + remaining
         _uiState.update { it.copy(phase = TimerPhase.Running) }
         startTicker()
     }
@@ -116,22 +99,19 @@ class CountdownViewModel : ViewModel() {
         tickerJob?.cancel()
         tickerJob = null
         _uiState.update {
-            it.copy(
-                phase = TimerPhase.Setup,
-                remainingMillis = durationMillis(it.hours, it.minutes, it.seconds),
-                totalMillis = durationMillis(it.hours, it.minutes, it.seconds),
-            )
+            it.copy(phase = TimerPhase.Setup, remainingMillis = durationMillis(it.hours, it.minutes, it.seconds), totalMillis = durationMillis(it.hours, it.minutes, it.seconds))
         }
     }
 
-    fun resetToSetup() {
-        cancel()
+    fun resetToSetup() { cancel() }
+
+    /** 结束页「重启」：按设置页保留的时分秒重新开始。 */
+    fun restart() {
+        if (_uiState.value.phase != TimerPhase.Finished) return
+        start()
     }
 
-    fun notifyFinished(context: Context) {
-        vibrate(context)
-        playAlarm(context)
-    }
+    fun notifyFinished(context: Context) { vibrate(context); playAlarm(context) }
 
     private fun syncSetupDuration() {
         _uiState.update {
@@ -144,12 +124,9 @@ class CountdownViewModel : ViewModel() {
         tickerJob?.cancel()
         tickerJob = viewModelScope.launch {
             while (isActive) {
-                val remaining = (endAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
+                val remaining = (endAtMillis - nowMillis()).coerceAtLeast(0L)
                 _uiState.update { it.copy(remainingMillis = remaining) }
-                if (remaining <= 0L) {
-                    finish()
-                    break
-                }
+                if (remaining <= 0L) { finish(); break }
                 delay(50L)
             }
         }
@@ -158,12 +135,7 @@ class CountdownViewModel : ViewModel() {
     private fun finish() {
         tickerJob?.cancel()
         tickerJob = null
-        _uiState.update {
-            it.copy(
-                remainingMillis = 0L,
-                phase = TimerPhase.Finished,
-            )
-        }
+        _uiState.update { it.copy(remainingMillis = 0L, phase = TimerPhase.Finished) }
     }
 
     private fun vibrate(context: Context) {
@@ -172,50 +144,32 @@ class CountdownViewModel : ViewModel() {
                 val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
                 manager.defaultVibrator
             } else {
-                @Suppress("DEPRECATION")
-                context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                @Suppress("DEPRECATION") context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
             }
-            vibrator.vibrate(
-                VibrationEffect.createWaveform(longArrayOf(0, 400, 200, 400, 200, 400), -1),
-            )
+            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 400, 200, 400, 200, 400), -1))
         }
     }
 
     private fun playAlarm(context: Context) {
         runCatching {
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             val ringtone = RingtoneManager.getRingtone(context, uri)
-            ringtone?.audioAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
+            ringtone?.audioAttributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
             ringtone?.play()
-            viewModelScope.launch {
-                delay(2500L)
-                runCatching { ringtone?.stop() }
-            }
+            viewModelScope.launch { delay(2500L); runCatching { ringtone?.stop() } }
         }.onFailure {
             runCatching {
                 val tone = ToneGenerator(AudioManager.STREAM_ALARM, 80)
                 tone.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 1500)
-                viewModelScope.launch {
-                    delay(1600L)
-                    tone.release()
-                }
+                viewModelScope.launch { delay(1600L); tone.release() }
             }
         }
     }
 
-    override fun onCleared() {
-        tickerJob?.cancel()
-        super.onCleared()
-    }
+    override fun onCleared() { tickerJob?.cancel(); super.onCleared() }
 
     companion object {
-        fun durationMillis(hours: Int, minutes: Int, seconds: Int): Long =
-            ((hours * 3600L) + (minutes * 60L) + seconds) * 1000L
-
+        fun durationMillis(hours: Int, minutes: Int, seconds: Int): Long = ((hours * 3600L) + (minutes * 60L) + seconds) * 1000L
         fun formatHms(millis: Long): Triple<Int, Int, Int> {
             val totalSeconds = (millis / 1000L).coerceAtLeast(0L).toInt()
             val hours = totalSeconds / 3600
@@ -223,7 +177,6 @@ class CountdownViewModel : ViewModel() {
             val seconds = totalSeconds % 60
             return Triple(hours, minutes, seconds)
         }
-
         fun formatDisplay(millis: Long): String {
             val (h, m, s) = formatHms(millis)
             return "%02d:%02d:%02d".format(h, m, s)
