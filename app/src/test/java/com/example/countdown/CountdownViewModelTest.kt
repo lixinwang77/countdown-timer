@@ -30,13 +30,13 @@ class CountdownViewModelTest {
     }
     @Test fun start_thenPause_keepsRemainingTime() = runTest(dispatcher) {
         var now = 0L
-        val viewModel = CountdownViewModel { now }
+        val viewModel = CountdownViewModel(nowMillis = { now })
         viewModel.applyPreset(0, 0, 5); viewModel.start(); now = 1_200L; advanceTimeBy(50L); runCurrent(); viewModel.pause()
         assertEquals(TimerPhase.Paused, viewModel.uiState.value.phase); assertEquals(3_800L, viewModel.uiState.value.remainingMillis)
     }
     @Test fun restart_fromFinished_startsOriginalDuration() = runTest(dispatcher) {
         var now = 0L
-        val viewModel = CountdownViewModel { now }
+        val viewModel = CountdownViewModel(nowMillis = { now })
         viewModel.applyPreset(0, 0, 3); viewModel.start(); now = 3_100L; advanceTimeBy(50L); runCurrent()
         assertEquals(TimerPhase.Finished, viewModel.uiState.value.phase)
         viewModel.restart(); runCurrent()
@@ -46,11 +46,28 @@ class CountdownViewModelTest {
     }
     @Test fun resetToSetup_fromFinished_returnsToSetup() = runTest(dispatcher) {
         var now = 0L
-        val viewModel = CountdownViewModel { now }
+        val viewModel = CountdownViewModel(nowMillis = { now })
         viewModel.applyPreset(0, 0, 2); viewModel.start(); now = 2_100L; advanceTimeBy(50L); runCurrent()
         assertEquals(TimerPhase.Finished, viewModel.uiState.value.phase)
         viewModel.resetToSetup()
         val state = viewModel.uiState.value
         assertEquals(TimerPhase.Setup, state.phase); assertEquals(0, state.hours); assertEquals(0, state.minutes); assertEquals(2, state.seconds)
+    }
+    @Test fun durationPreferences_restoredOnNewViewModel() = runTest(dispatcher) {
+        val prefs = object : com.example.countdown.data.DurationPreferences {
+            private var saved = com.example.countdown.data.DurationSetting.DEFAULT
+            override fun load() = saved
+            override fun save(hours: Int, minutes: Int, seconds: Int) {
+                saved = com.example.countdown.data.DurationSetting(hours, minutes, seconds)
+            }
+        }
+        val first = CountdownViewModel(durationPreferences = prefs)
+        first.setMinutes(2)
+        assertEquals(2, first.uiState.value.minutes)
+        val second = CountdownViewModel(durationPreferences = prefs)
+        assertEquals(0, second.uiState.value.hours)
+        assertEquals(2, second.uiState.value.minutes)
+        assertEquals(0, second.uiState.value.seconds)
+        assertEquals(120_000L, second.uiState.value.totalMillis)
     }
 }
