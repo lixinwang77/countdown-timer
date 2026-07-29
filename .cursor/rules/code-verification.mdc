@@ -1,0 +1,6 @@
+---
+description: 
+alwaysApply: true
+---
+
+在修改完代码后，自动编译代码，并且使用 android cli skill 让应用在模拟器里跑进行验证，其中编译代码和使用 android cli 不要在沙箱中。

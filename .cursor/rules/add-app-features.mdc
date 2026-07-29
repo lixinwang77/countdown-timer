@@ -1,0 +1,6 @@
+---
+description: 
+alwaysApply: true
+---
+
+增加app新功能后，先在规格书加 ID，再在测试指南补用例，两边变更登记各记一行即可。

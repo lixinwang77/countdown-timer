@@ -8,6 +8,8 @@
     <string name="resume">继续</string>
     <string name="cancel">取消</string>
     <string name="reset">重置</string>
+    <string name="stop">停止</string>
+    <string name="restart">重启</string>
     <string name="finished">时间到</string>
     <string name="more_options">更多选项</string>
 </resources>
