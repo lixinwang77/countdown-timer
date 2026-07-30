@@ -1,21 +1,18 @@
 package com.example.countdown.ui
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.AudioManager
-import android.media.MediaPlayer
-import android.media.RingtoneManager
-import android.media.ToneGenerator
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.countdown.alert.AndroidTimerAlertController
+import com.example.countdown.alert.NoOpTimerAlertController
+import com.example.countdown.alert.TimerAlertController
+import com.example.countdown.alert.TimerFinishBus
 import com.example.countdown.data.DurationPreferences
 import com.example.countdown.data.DurationSetting
 import com.example.countdown.data.MemoryDurationPreferences
 import com.example.countdown.data.SharedDurationPreferences
+import com.example.countdown.data.TimerSessionStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,16 +41,30 @@ data class CountdownUiState(
 class CountdownViewModel(
     private val nowMillis: () -> Long = { System.currentTimeMillis() },
     private val durationPreferences: DurationPreferences = MemoryDurationPreferences,
+    private val alertController: TimerAlertController = NoOpTimerAlertController,
+    private val sessionStore: TimerSessionStore? = null,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(initialState(durationPreferences.load()))
     val uiState: StateFlow<CountdownUiState> = _uiState.asStateFlow()
 
     private var tickerJob: Job? = null
     private var endAtMillis: Long = 0L
-    private var mediaPlayer: MediaPlayer? = null
-    private var activeVibrator: Vibrator? = null
-    private var toneJob: Job? = null
-    private var toneGenerator: ToneGenerator? = null
+    private var alertActive: Boolean = false
+
+    init {
+        restoreSessionIfNeeded()
+        viewModelScope.launch {
+            TimerFinishBus.finished.collect {
+                onExternalFinished()
+            }
+        }
+        viewModelScope.launch {
+            TimerFinishBus.silenced.collect {
+                alertActive = false
+                sessionStore?.setAlertActive(false)
+            }
+        }
+    }
 
     fun setHours(value: Int) {
         if (_uiState.value.phase != TimerPhase.Setup) return
@@ -85,68 +96,152 @@ class CountdownViewModel(
         val state = _uiState.value
         val total = durationMillis(state.hours, state.minutes, state.seconds)
         if (total <= 0L) return
+        alertController.stopAlert()
+        alertActive = false
         endAtMillis = nowMillis() + total
         _uiState.update { it.copy(totalMillis = total, remainingMillis = total, phase = TimerPhase.Running) }
+        sessionStore?.saveRunning(state.hours, state.minutes, state.seconds, total, endAtMillis)
+        alertController.scheduleFinish(endAtMillis)
         startTicker()
     }
 
     fun pause() {
         if (_uiState.value.phase != TimerPhase.Running) return
         tickerJob?.cancel()
+        alertController.cancelSchedule()
         val remaining = (endAtMillis - nowMillis()).coerceAtLeast(0L)
+        val state = _uiState.value
         _uiState.update { it.copy(remainingMillis = remaining, phase = TimerPhase.Paused) }
+        sessionStore?.savePaused(state.hours, state.minutes, state.seconds, state.totalMillis, remaining)
     }
 
     fun resume() {
         if (_uiState.value.phase != TimerPhase.Paused) return
         val remaining = _uiState.value.remainingMillis
-        if (remaining <= 0L) { finish(); return }
+        if (remaining <= 0L) {
+            finish(startAlert = true)
+            return
+        }
         endAtMillis = nowMillis() + remaining
+        val state = _uiState.value
         _uiState.update { it.copy(phase = TimerPhase.Running) }
+        sessionStore?.saveRunning(state.hours, state.minutes, state.seconds, state.totalMillis, endAtMillis)
+        alertController.scheduleFinish(endAtMillis)
         startTicker()
     }
 
     fun cancel() {
-        stopAlert()
+        stopAlertInternal()
         tickerJob?.cancel()
         tickerJob = null
+        alertController.cancelSchedule()
         _uiState.update {
-            it.copy(phase = TimerPhase.Setup, remainingMillis = durationMillis(it.hours, it.minutes, it.seconds), totalMillis = durationMillis(it.hours, it.minutes, it.seconds))
+            val total = durationMillis(it.hours, it.minutes, it.seconds)
+            it.copy(phase = TimerPhase.Setup, remainingMillis = total, totalMillis = total)
         }
+        val state = _uiState.value
+        sessionStore?.clearToSetup(state.hours, state.minutes, state.seconds)
     }
 
-    fun resetToSetup() { cancel() }
+    fun resetToSetup() {
+        cancel()
+    }
 
     /** 结束页「重启」：按设置页保留的时分秒重新开始。 */
     fun restart() {
         if (_uiState.value.phase != TimerPhase.Finished) return
-        stopAlert()
+        stopAlertInternal()
         start()
     }
 
-    fun notifyFinished(context: Context) {
-        val appContext = context.applicationContext
-        stopAlert()
-        vibrate(appContext)
-        playAlarm(appContext)
+    /** 确保结束提示在响（前台恢复时若仍应响铃则拉起服务）。 */
+    fun ensureAlertPlaying() {
+        if (_uiState.value.phase != TimerPhase.Finished) return
+        if (!alertActive) return
+        alertController.startAlert()
     }
 
     /** 仅停止响铃/震动，仍停留在结束页。按音量键或电源键时调用。 */
     fun silenceAlert() {
         if (_uiState.value.phase != TimerPhase.Finished) return
-        stopAlert()
+        stopAlertInternal()
     }
 
     /** @return true 表示当前正在响铃/震动并已处理静音 */
     fun silenceAlertIfActive(): Boolean {
         if (_uiState.value.phase != TimerPhase.Finished) return false
-        if (!isAlertActive()) return false
-        stopAlert()
+        if (!alertActive) return false
+        stopAlertInternal()
         return true
     }
 
-    private fun isAlertActive(): Boolean =
-        mediaPlayer != null || toneJob != null || activeVibrator != null
+    private fun restoreSessionIfNeeded() {
+        val session = sessionStore?.load() ?: return
+        when (session.phase) {
+            TimerPhase.Running -> {
+                endAtMillis = session.endAtMillis
+                val remaining = (endAtMillis - nowMillis()).coerceAtLeast(0L)
+                if (remaining <= 0L) {
+                    _uiState.value = CountdownUiState(
+                        hours = session.hours,
+                        minutes = session.minutes,
+                        seconds = session.seconds,
+                        remainingMillis = 0L,
+                        totalMillis = session.totalMillis,
+                        phase = TimerPhase.Finished,
+                    )
+                    finish(startAlert = true)
+                } else {
+                    _uiState.value = CountdownUiState(
+                        hours = session.hours,
+                        minutes = session.minutes,
+                        seconds = session.seconds,
+                        remainingMillis = remaining,
+                        totalMillis = session.totalMillis,
+                        phase = TimerPhase.Running,
+                    )
+                    alertController.scheduleFinish(endAtMillis)
+                    startTicker()
+                }
+            }
+            TimerPhase.Paused -> {
+                val remaining = sessionStore.remainingWhenPaused().coerceAtLeast(0L)
+                _uiState.value = CountdownUiState(
+                    hours = session.hours,
+                    minutes = session.minutes,
+                    seconds = session.seconds,
+                    remainingMillis = remaining,
+                    totalMillis = session.totalMillis,
+                    phase = TimerPhase.Paused,
+                )
+            }
+            TimerPhase.Finished -> {
+                _uiState.value = CountdownUiState(
+                    hours = session.hours,
+                    minutes = session.minutes,
+                    seconds = session.seconds,
+                    remainingMillis = 0L,
+                    totalMillis = session.totalMillis,
+                    phase = TimerPhase.Finished,
+                )
+                alertActive = session.alertActive
+                if (alertActive) {
+                    alertController.startAlert()
+                }
+            }
+            TimerPhase.Setup -> Unit
+        }
+    }
+
+    private fun onExternalFinished() {
+        if (_uiState.value.phase == TimerPhase.Finished) {
+            alertActive = true
+            return
+        }
+        finish(startAlert = false) // receiver already started alert
+        alertActive = true
+        sessionStore?.markFinished(alertActive = true)
+    }
 
     private fun syncSetupDuration() {
         _uiState.update {
@@ -163,90 +258,43 @@ class CountdownViewModel(
             while (isActive) {
                 val remaining = (endAtMillis - nowMillis()).coerceAtLeast(0L)
                 _uiState.update { it.copy(remainingMillis = remaining) }
-                if (remaining <= 0L) { finish(); break }
+                if (remaining <= 0L) {
+                    finish(startAlert = true)
+                    break
+                }
                 delay(50L)
             }
         }
     }
 
-    private fun finish() {
+    private fun finish(startAlert: Boolean) {
         tickerJob?.cancel()
         tickerJob = null
+        alertController.cancelSchedule()
         _uiState.update { it.copy(remainingMillis = 0L, phase = TimerPhase.Finished) }
-    }
-
-    private fun vibrate(context: Context) {
-        runCatching {
-            val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-                manager.defaultVibrator
-            } else {
-                @Suppress("DEPRECATION") context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            }
-            // repeatIndex = 0：从波形开头循环，直到 stopAlert()
-            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 300, 500, 300, 500), 0))
-            activeVibrator = vibrator
+        sessionStore?.markFinished(alertActive = startAlert || alertActive)
+        if (startAlert) {
+            alertActive = true
+            alertController.startAlert()
         }
     }
 
-    private fun playAlarm(context: Context) {
-        val played = runCatching {
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                ?: return@runCatching false
-            mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build(),
-                )
-                setDataSource(context, uri)
-                isLooping = true
-                prepare()
-                start()
-            }
-            true
-        }.getOrDefault(false)
-
-        if (!played) {
-            runCatching {
-                val tone = ToneGenerator(AudioManager.STREAM_ALARM, 90)
-                toneGenerator = tone
-                toneJob = viewModelScope.launch {
-                    while (isActive) {
-                        tone.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 1200)
-                        delay(1600L)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun stopAlert() {
-        toneJob?.cancel()
-        toneJob = null
-        runCatching { toneGenerator?.release() }
-        toneGenerator = null
-        runCatching {
-            mediaPlayer?.let { player ->
-                if (player.isPlaying) player.stop()
-                player.release()
-            }
-        }
-        mediaPlayer = null
-        runCatching { activeVibrator?.cancel() }
-        activeVibrator = null
+    private fun stopAlertInternal() {
+        alertActive = false
+        alertController.stopAlert()
+        sessionStore?.setAlertActive(false)
     }
 
     override fun onCleared() {
-        stopAlert()
         tickerJob?.cancel()
+        // 不在此处 stopAlert：进程退到后台时 ViewModel 可能被清掉，但闹钟服务应继续响
         super.onCleared()
     }
 
     companion object {
-        fun durationMillis(hours: Int, minutes: Int, seconds: Int): Long = ((hours * 3600L) + (minutes * 60L) + seconds) * 1000L
+        fun durationMillis(hours: Int, minutes: Int, seconds: Int): Long =
+            ((hours * 3600L) + (minutes * 60L) + seconds) * 1000L
+
         fun formatHms(millis: Long): Triple<Int, Int, Int> {
             val totalSeconds = (millis / 1000L).coerceAtLeast(0L).toInt()
             val hours = totalSeconds / 3600
@@ -254,6 +302,7 @@ class CountdownViewModel(
             val seconds = totalSeconds % 60
             return Triple(hours, minutes, seconds)
         }
+
         fun formatDisplay(millis: Long): String {
             val (h, m, s) = formatHms(millis)
             return "%02d:%02d:%02d".format(h, m, s)
@@ -279,8 +328,11 @@ class CountdownViewModelFactory(
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(CountdownViewModel::class.java))
+        val appContext = context.applicationContext
         return CountdownViewModel(
-            durationPreferences = SharedDurationPreferences(context),
+            durationPreferences = SharedDurationPreferences(appContext),
+            alertController = AndroidTimerAlertController(appContext),
+            sessionStore = TimerSessionStore(appContext),
         ) as T
     }
 }

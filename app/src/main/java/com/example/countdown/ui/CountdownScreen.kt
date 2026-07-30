@@ -33,7 +33,7 @@ private val presets = listOf(Preset(0, 10, 0), Preset(0, 15, 0), Preset(0, 30, 0
 @Composable fun CountdownScreen(viewModel: CountdownViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle(); val context = LocalContext.current; val activity = context as? Activity
     DisposableEffect(uiState.phase) { val window = activity?.window; if (uiState.phase == TimerPhase.Running || uiState.phase == TimerPhase.Paused) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) } }
-    LaunchedEffect(uiState.phase) { if (uiState.phase == TimerPhase.Finished) viewModel.notifyFinished(context) }
+    LaunchedEffect(uiState.phase) { if (uiState.phase == TimerPhase.Finished) viewModel.ensureAlertPlaying() }
     Box(Modifier.fillMaxSize().background(White).statusBarsPadding().navigationBarsPadding()) { TopBar(Modifier.align(Alignment.TopEnd)) { viewModel.resetToSetup() }; when (uiState.phase) { TimerPhase.Setup -> SetupContent(uiState.hours, uiState.minutes, uiState.seconds, viewModel::setHours, viewModel::setMinutes, viewModel::setSeconds, viewModel::applyPreset, viewModel::start); TimerPhase.Running, TimerPhase.Paused -> RunningContent(uiState.remainingMillis, uiState.totalMillis, uiState.phase == TimerPhase.Paused, viewModel::pause, viewModel::resume, viewModel::cancel); TimerPhase.Finished -> FinishedContent(viewModel::resetToSetup, viewModel::restart) } }
 }
 @Composable private fun TopBar(modifier: Modifier = Modifier, onReset: () -> Unit) {
