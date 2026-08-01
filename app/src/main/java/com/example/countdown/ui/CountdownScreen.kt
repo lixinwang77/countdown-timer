@@ -57,6 +57,13 @@ private val presets = listOf(Preset(0, 10, 0), Preset(0, 15, 0), Preset(0, 30, 0
 }
 @Composable private fun TopBar(modifier: Modifier = Modifier, onReset: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    var showAbout by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val versionName = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull().orEmpty().ifEmpty { "—" }
+    }
     Box(modifier.padding(top = 4.dp, end = 4.dp)) {
         IconButton(onClick = { expanded = true }) {
             Icon(Icons.Filled.MoreVert, stringResource(R.string.more_options), tint = Black)
@@ -66,7 +73,23 @@ private val presets = listOf(Preset(0, 10, 0), Preset(0, 15, 0), Preset(0, 30, 0
                 text = { Text(stringResource(R.string.reset)) },
                 onClick = { expanded = false; onReset() },
             )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.about)) },
+                onClick = { expanded = false; showAbout = true },
+            )
         }
+    }
+    if (showAbout) {
+        AlertDialog(
+            onDismissRequest = { showAbout = false },
+            title = { Text(stringResource(R.string.app_name)) },
+            text = { Text(stringResource(R.string.about_version, versionName)) },
+            confirmButton = {
+                TextButton(onClick = { showAbout = false }) {
+                    Text(stringResource(R.string.ok))
+                }
+            },
+        )
     }
 }
 @Composable private fun SetupContent(hours: Int, minutes: Int, seconds: Int, onHoursChange: (Int) -> Unit, onMinutesChange: (Int) -> Unit, onSecondsChange: (Int) -> Unit, onPreset: (Int, Int, Int) -> Unit, onStart: () -> Unit) { Column(Modifier.fillMaxSize().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) { Spacer(Modifier.weight(0.22f)); TimePickerSection(hours, minutes, seconds, onHoursChange, onMinutesChange, onSecondsChange); Spacer(Modifier.height(48.dp)); PresetRow(onPreset); Spacer(Modifier.weight(0.45f)); PrimaryPillButton(stringResource(R.string.start), onStart, Modifier.padding(bottom = 36.dp), hours > 0 || minutes > 0 || seconds > 0) } }

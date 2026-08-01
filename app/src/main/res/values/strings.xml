@@ -12,6 +12,9 @@
     <string name="restart">重启</string>
     <string name="finished">时间到</string>
     <string name="more_options">更多选项</string>
+    <string name="about">关于</string>
+    <string name="about_version">版本 %1$s</string>
+    <string name="ok">确定</string>
     <string name="alert_channel_name">倒计时结束</string>
     <string name="alert_channel_desc">倒计时结束后的响铃提醒</string>
     <string name="alert_notification_text">时间到，点击返回应用或停止响铃</string>
