@@ -12,3 +12,9 @@ local.properties
 *.ap_
 *.aab
 /screenshot*.png
+
+# Release signing secrets (keep local only)
+keystore.properties
+keystore/
+*.jks
+*.keystore
